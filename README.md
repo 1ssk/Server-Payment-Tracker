@@ -1,6 +1,6 @@
-## VPN Server Management System by Annonyx
+## Servers Management System by Annonyx
 
-Полнофункциональное веб‑приложение для учёта VPN‑серверов, их стоимости и предстоящих платежей. Состоит из frontend‑части на React и backend‑сервера на Go с базой данных SQLite.
+Полнофункциональное веб‑приложение для учёта серверов, их стоимости и предстоящих платежей. Состоит из frontend‑части на React и backend‑сервера на Go с базой данных SQLite.
 
 ### Возможности
 

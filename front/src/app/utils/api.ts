@@ -1,11 +1,15 @@
 import { VPNServer, SMTPSettings } from '../types/server';
 
 const API_BASE = '';
+const AUTH_KEY = 'vpn-auth-token';
 
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem(AUTH_KEY) : null;
+
   const res = await fetch(input, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init && init.headers),
     },
     ...init,
@@ -14,6 +18,11 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Request failed with status ${res.status}`);
+  }
+
+  // Для 204 No Content возвращаем undefined.
+  if (res.status === 204) {
+    return undefined as T;
   }
 
   return res.json() as Promise<T>;

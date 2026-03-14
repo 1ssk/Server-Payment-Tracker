@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { VPNServer } from './types/server';
 import { calculateStats } from './utils/calculations';
-import { apiCreateServer, apiDeleteServer, apiGetServers, apiUpdateServer } from './utils/api';
+import { apiCreateServer, apiDeleteServer, apiGetServers, apiUpdateServer, apiLogin } from './utils/api';
 import { StatCard } from './components/StatCard';
 import { ServerCard } from './components/ServerCard';
 import { ServerForm } from './components/ServerForm';
@@ -25,70 +25,6 @@ import {
 
 const AUTH_KEY = 'vpn-auth-token';
 
-// Учетные данные администратора
-const ADMIN_CREDENTIALS = {
-  username: 'admin',
-  password: 'admin123'
-};
-
-// Примеры серверов для демонстрации
-const initialServers: VPNServer[] = [
-  {
-    id: '1',
-    name: 'EU-Server-01',
-    provider: 'DigitalOcean',
-    providerUrl: 'https://digitalocean.com',
-    ipAddress: '178.128.45.12',
-    location: 'Нидерланды, Амстердам',
-    monthlyCost: 1200.00,
-    billingCycle: 'monthly',
-    nextPaymentDate: '2026-03-20',
-    status: 'active',
-    notes: 'Основной сервер для европейских пользователей',
-    createdAt: '2025-01-15'
-  },
-  {
-    id: '2',
-    name: 'US-Server-NYC',
-    provider: 'Linode',
-    providerUrl: 'https://linode.com',
-    ipAddress: '45.79.132.89',
-    location: 'США, Нью-Йорк',
-    monthlyCost: 6000.00,
-    billingCycle: 'quarterly',
-    nextPaymentDate: '2026-04-01',
-    status: 'active',
-    notes: 'Высокопроизводительный сервер',
-    createdAt: '2025-02-01'
-  },
-  {
-    id: '3',
-    name: 'ASIA-Server-SG',
-    provider: 'Vultr',
-    providerUrl: 'https://vultr.com',
-    ipAddress: '103.253.145.78',
-    location: 'Сингапур',
-    monthlyCost: 15000.00,
-    billingCycle: 'yearly',
-    nextPaymentDate: '2026-12-15',
-    status: 'active',
-    createdAt: '2024-12-15'
-  },
-  {
-    id: '4',
-    name: 'EU-Backup-Server',
-    provider: 'Hetzner',
-    ipAddress: '95.217.28.156',
-    location: 'Германия, Франкфурт',
-    monthlyCost: 850.00,
-    billingCycle: 'monthly',
-    nextPaymentDate: '2026-03-18',
-    status: 'inactive',
-    notes: 'Резервный сервер, временно отключен',
-    createdAt: '2025-03-01'
-  }
-];
-
 type SortField = 'name' | 'location' | 'cost' | 'nextPayment';
 type SortDirection = 'asc' | 'desc';
 
@@ -106,43 +42,46 @@ export default function App() {
   // Проверка авторизации при загрузке
   useEffect(() => {
     const authToken = localStorage.getItem(AUTH_KEY);
-    if (authToken === 'true') {
+    if (authToken) {
       setIsAuthenticated(true);
     }
   }, []);
 
-  // Загрузка данных с backend
+  // Загрузка данных с backend (только после авторизации)
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const load = async () => {
       try {
         const data = await apiGetServers();
-        if (data.length === 0) {
-          setServers(initialServers);
-        } else {
-          setServers(data);
-        }
+        setServers(data ?? []);
       } catch (error) {
         console.error('Error loading servers from API:', error);
-        setServers(initialServers);
+        setServers([]);
       }
     };
     load();
-  }, []);
+  }, [isAuthenticated]);
 
   const stats = useMemo(() => calculateStats(servers), [servers]);
 
-  const handleLogin = (username: string, password: string): boolean => {
-    if (username === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
-      localStorage.setItem(AUTH_KEY, 'true');
+  const handleLogin = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const { token } = await apiLogin(username, password);
+      localStorage.setItem(AUTH_KEY, token);
       setIsAuthenticated(true);
       return true;
+    } catch (error) {
+      console.error('Login error:', error);
+      setIsAuthenticated(false);
+      return false;
     }
-    return false;
   };
 
   const handleLogout = () => {
     localStorage.removeItem(AUTH_KEY);
     setIsAuthenticated(false);
+    setServers([]);
   };
 
   const handleSaveServer = async (serverData: Omit<VPNServer, 'id' | 'createdAt'>) => {

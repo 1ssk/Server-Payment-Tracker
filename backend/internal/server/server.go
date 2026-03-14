@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/anyx/serversanyx-backend/internal/models"
@@ -33,17 +34,58 @@ func (s *Server) Handler() http.Handler {
 
 // registerRoutes регистрирует все HTTP‑маршруты API.
 func (s *Server) registerRoutes() {
+	// Авторизация
+	s.mux.HandleFunc("POST /api/login", s.handleLogin)
+
+	// Операции с серверами (требуют авторизации)
 	s.mux.HandleFunc("GET /api/servers", s.handleGetServers)
 	s.mux.HandleFunc("POST /api/servers", s.handleCreateServer)
 	s.mux.HandleFunc("PUT /api/servers", s.handleUpdateServer)
 	s.mux.HandleFunc("DELETE /api/servers", s.handleDeleteServer)
 
+	// SMTP‑настройки (требуют авторизации)
 	s.mux.HandleFunc("GET /api/smtp-settings", s.handleGetSMTPSettings)
 	s.mux.HandleFunc("PUT /api/smtp-settings", s.handleUpdateSMTPSettings)
 }
 
+// handleLogin выполняет проверку логина/пароля и возвращает токен.
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// Учётные данные берём из переменных окружения, а не с фронтенда.
+	username := os.Getenv("ADMIN_USERNAME")
+	if username == "" {
+		username = "admin"
+	}
+	password := os.Getenv("ADMIN_PASSWORD")
+	if password == "" {
+		password = "admin123"
+	}
+
+	if req.Username != username || req.Password != password {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	token := authToken()
+	writeJSON(w, http.StatusOK, struct {
+		Token string `json:"token"`
+	}{Token: token})
+}
+
 // handleGetServers возвращает список серверов.
 func (s *Server) handleGetServers(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	servers, err := s.store.ListServers()
 	if err != nil {
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -56,6 +98,9 @@ func (s *Server) handleGetServers(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateServer создаёт новый сервер.
 func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	var server models.VPNServer
 	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -79,6 +124,9 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateServer обновляет существующий сервер.
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	var server models.VPNServer
 	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -99,6 +147,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteServer удаляет сервер по ID.
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
@@ -115,6 +166,9 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 
 // handleGetSMTPSettings возвращает сохранённые SMTP‑настройки.
 func (s *Server) handleGetSMTPSettings(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	settings, err := s.store.GetSMTPSettings()
 	if err != nil {
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -125,6 +179,9 @@ func (s *Server) handleGetSMTPSettings(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateSMTPSettings сохраняет SMTP‑настройки.
 func (s *Server) handleUpdateSMTPSettings(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
 	var settings models.SMTPSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -156,4 +213,36 @@ func logRequest(next http.Handler) http.Handler {
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
 	})
 }
+
+// authToken возвращает "секретный" токен, который фронт должен передавать в заголовке Authorization.
+func authToken() string {
+	if v := os.Getenv("AUTH_TOKEN"); v != "" {
+		return v
+	}
+	// Значение по умолчанию для простых установок.
+	return "demo-token"
+}
+
+// checkAuth проверяет заголовок Authorization: Bearer <token>.
+func checkAuth(w http.ResponseWriter, r *http.Request) bool {
+	// Эндпоинт логина не требует авторизации.
+	if r.URL.Path == "/api/login" {
+		return true
+	}
+
+	const prefix = "Bearer "
+	h := r.Header.Get("Authorization")
+	if len(h) < len(prefix) || h[:len(prefix)] != prefix {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+
+	token := h[len(prefix):]
+	if token != authToken() {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 
