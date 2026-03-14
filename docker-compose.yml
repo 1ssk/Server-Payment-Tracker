@@ -1,0 +1,15 @@
+services:
+  vpn-app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_PATH=/data/app.db
+      - ADMIN_USERNAME=
+      - ADMIN_PASSWORD=
+    volumes:
+      - db-data:/data
+
+volumes:
+  db-data:
+
