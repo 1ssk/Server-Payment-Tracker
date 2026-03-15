@@ -1,14 +1,20 @@
-import { VPNServer } from '../types/server';
-import { Server, MapPin, Calendar, DollarSign, Edit, Trash2, ExternalLink, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Server } from '../types/server';
+import { Server as ServerIcon, MapPin, Calendar, DollarSign, Edit, Trash2, ExternalLink, AlertCircle, CheckCircle } from 'lucide-react';
 import { calculateYearlyCost, getDaysUntilPayment } from '../utils/calculations';
 
 interface ServerCardProps {
-  server: VPNServer;
-  onEdit: (server: VPNServer) => void;
+  server: Server;
+  onEdit: (server: Server) => void;
   onDelete: (id: string) => void;
+  onConfirmPayment: (serverId: string, paidAt: string, amount?: number) => Promise<void>;
 }
 
-export function ServerCard({ server, onEdit, onDelete }: ServerCardProps) {
+export function ServerCard({ server, onEdit, onDelete, onConfirmPayment }: ServerCardProps) {
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmDate, setConfirmDate] = useState(new Date().toISOString().slice(0, 10));
+  const [confirmAmount, setConfirmAmount] = useState(server.monthlyCost.toString());
+  const [saving, setSaving] = useState(false);
   const yearlyCost = calculateYearlyCost(server);
   const daysUntil = getDaysUntilPayment(server.nextPaymentDate);
   const isPaymentSoon = daysUntil >= 0 && daysUntil <= 7;
@@ -37,7 +43,7 @@ export function ServerCard({ server, onEdit, onDelete }: ServerCardProps) {
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3 flex-1">
           <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
-            <Server className="w-5 h-5" />
+            <ServerIcon className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 mb-1">{server.name}</h3>
@@ -59,6 +65,15 @@ export function ServerCard({ server, onEdit, onDelete }: ServerCardProps) {
           </div>
         </div>
         <div className="flex gap-2">
+          {server.status === 'active' && (
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+              title="Подтвердить оплату"
+            >
+              <CheckCircle className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={() => onEdit(server)}
             className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -78,7 +93,7 @@ export function ServerCard({ server, onEdit, onDelete }: ServerCardProps) {
 
       <div className="space-y-2.5 mb-4">
         <div className="flex items-center gap-2 text-sm">
-          <Server className="w-4 h-4 text-gray-400" />
+          <ServerIcon className="w-4 h-4 text-gray-400" />
           <span className="text-gray-600">IP:</span>
           <span className="text-gray-900 font-mono">{server.ipAddress}</span>
         </div>
@@ -133,6 +148,56 @@ export function ServerCard({ server, onEdit, onDelete }: ServerCardProps) {
           <p className="text-lg font-semibold text-indigo-600">₽{yearlyCost}</p>
         </div>
       </div>
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Подтвердить оплату</h3>
+            <p className="text-sm text-gray-600 mb-4">Сервер: {server.name}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Дата оплаты</label>
+                <input
+                  type="date"
+                  value={confirmDate}
+                  onChange={e => setConfirmDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Сумма (₽)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={confirmAmount}
+                  onChange={e => setConfirmAmount(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                disabled={saving}
+                onClick={async () => {
+                  setSaving(true);
+                  await onConfirmPayment(server.id, confirmDate, parseFloat(confirmAmount) || undefined);
+                  setSaving(false);
+                  setShowConfirmModal(false);
+                }}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-70"
+              >
+                {saving ? 'Сохранение…' : 'Подтвердить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

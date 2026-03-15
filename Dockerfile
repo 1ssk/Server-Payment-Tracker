@@ -11,9 +11,9 @@ WORKDIR /app
 RUN apk add --no-cache build-base
 COPY backend ./backend
 COPY --from=frontend-build /app/front/dist ./frontend
-WORKDIR /app/backend/cmd/server
+WORKDIR /app/backend
 RUN go mod tidy
-RUN go build -o /app/server .
+RUN go build -o /app/server ./cmd/server
 
 FROM alpine:3.20
 WORKDIR /app

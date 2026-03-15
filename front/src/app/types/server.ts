@@ -1,4 +1,4 @@
-export interface VPNServer {
+export interface Server {
   id: string;
   name: string;
   provider: string;
@@ -12,6 +12,9 @@ export interface VPNServer {
   notes?: string;
   createdAt: string;
 }
+
+/** @deprecated используйте Server */
+export type VPNServer = Server;
 
 export interface ServerStats {
   totalServers: number;
@@ -35,4 +38,21 @@ export interface SMTPSettings {
   from: string;
   to: string;
   enabled: boolean;
+  /** За сколько дней до срока присылать напоминание (по умолчанию 10). */
+  reminderDaysBefore: number;
+}
+
+export interface Payment {
+  id: string;
+  serverId: string;
+  amount: number;
+  paidAt: string;
+  createdAt: string;
+}
+
+export interface ReportRow {
+  serverId: string;
+  serverName: string;
+  paidAt: string;
+  amount: number;
 }

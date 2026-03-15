@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/anyx/serversanyx-backend/internal/mailer"
 	"github.com/anyx/serversanyx-backend/internal/models"
 	"github.com/anyx/serversanyx-backend/internal/storage"
 )
@@ -43,9 +44,15 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/servers", s.handleUpdateServer)
 	s.mux.HandleFunc("DELETE /api/servers", s.handleDeleteServer)
 
-	// SMTP‑настройки (требуют авторизации)
+	// Платежи и отчёты
+	s.mux.HandleFunc("POST /api/servers/{id}/payments", s.handleConfirmPayment)
+	s.mux.HandleFunc("GET /api/servers/{id}/payments", s.handleGetServerPayments)
+	s.mux.HandleFunc("GET /api/reports", s.handleGetReports)
+
+	// SMTP‑настройки
 	s.mux.HandleFunc("GET /api/smtp-settings", s.handleGetSMTPSettings)
 	s.mux.HandleFunc("PUT /api/smtp-settings", s.handleUpdateSMTPSettings)
+	s.mux.HandleFunc("POST /api/smtp-settings/test", s.handleSendTestEmail)
 }
 
 // handleLogin выполняет проверку логина/пароля и возвращает токен.
@@ -60,16 +67,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Учётные данные берём из переменных окружения, а не с фронтенда.
+	// Учётные данные только из переменных окружения (без дефолтов в коде).
 	username := os.Getenv("ADMIN_USERNAME")
-	if username == "" {
-		username = "admin"
-	}
 	password := os.Getenv("ADMIN_PASSWORD")
-	if password == "" {
-		password = "admin123"
+	if username == "" || password == "" {
+		http.Error(w, "auth not configured", http.StatusServiceUnavailable)
+		return
 	}
-
 	if req.Username != username || req.Password != password {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
@@ -194,6 +198,111 @@ func (s *Server) handleUpdateSMTPSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleConfirmPayment — подтверждение оплаты по серверу (POST /api/servers/{id}/payments).
+func (s *Server) handleConfirmPayment(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
+	serverID := r.PathValue("id")
+	if serverID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		PaidAt string  `json:"paidAt"`
+		Amount float64 `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.PaidAt == "" {
+		http.Error(w, "paidAt required", http.StatusBadRequest)
+		return
+	}
+	if req.Amount <= 0 {
+		// Подставить стоимость из сервера
+		servers, _ := s.store.ListServers()
+		for _, sv := range servers {
+			if sv.ID == serverID {
+				req.Amount = sv.MonthlyCost
+				break
+			}
+		}
+		if req.Amount <= 0 {
+			http.Error(w, "amount required", http.StatusBadRequest)
+			return
+		}
+	}
+	p := models.Payment{
+		ID:        time.Now().Format("20060102150405") + "-" + serverID,
+		ServerID:  serverID,
+		Amount:    req.Amount,
+		PaidAt:    req.PaidAt,
+		CreatedAt: time.Now().Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if err := s.store.InsertPayment(p); err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// handleGetServerPayments — история платежей по серверу.
+func (s *Server) handleGetServerPayments(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
+	serverID := r.PathValue("id")
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	list, err := s.store.ListPayments(serverID, from, to)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Payments []models.Payment `json:"payments"`
+	}{Payments: list})
+}
+
+// handleGetReports — отчёт по расходам (фильтр по серверу и периоду).
+func (s *Server) handleGetReports(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
+	serverID := r.URL.Query().Get("serverId")
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	rows, err := s.store.ListReportRows(serverID, from, to)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Rows []models.ReportRow `json:"rows"`
+	}{Rows: rows})
+}
+
+// handleSendTestEmail — отправить тестовое письмо (проверка SMTP).
+func (s *Server) handleSendTestEmail(w http.ResponseWriter, r *http.Request) {
+	if !checkAuth(w, r) {
+		return
+	}
+	settings, err := s.store.GetSMTPSettings()
+	if err != nil || !settings.Enabled || settings.Host == "" || settings.To == "" {
+		http.Error(w, "smtp not configured", http.StatusBadRequest)
+		return
+	}
+	if err := mailer.SendTestEmail(settings, settings.To); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Ok bool `json:"ok"`
+	}{Ok: true})
 }
 
 // writeJSON отправляет JSON‑ответ с нужным статус‑кодом.

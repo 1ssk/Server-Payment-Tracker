@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { VPNServer } from './types/server';
+import { Server as ServerType } from './types/server';
 import { calculateStats } from './utils/calculations';
-import { apiCreateServer, apiDeleteServer, apiGetServers, apiUpdateServer, apiLogin } from './utils/api';
+import { apiCreateServer, apiDeleteServer, apiGetServers, apiUpdateServer, apiLogin, apiConfirmPayment } from './utils/api';
 import { StatCard } from './components/StatCard';
 import { ServerCard } from './components/ServerCard';
 import { ServerForm } from './components/ServerForm';
 import { PaymentChart } from './components/PaymentChart';
 import { UpcomingPayments } from './components/UpcomingPayments';
+import { ReportsTab } from './components/ReportsTab';
 import { LoginForm } from './components/LoginForm';
 import { SettingsPanel } from './components/SettingsPanel';
 import { 
@@ -20,24 +21,27 @@ import {
   SortAsc,
   SortDesc,
   Settings,
-  LogOut
+  LogOut,
+  FileText
 } from 'lucide-react';
 
-const AUTH_KEY = 'vpn-auth-token';
+const AUTH_KEY = 'app-auth-token';
 
 type SortField = 'name' | 'location' | 'cost' | 'nextPayment';
 type SortDirection = 'asc' | 'desc';
+type Tab = 'dashboard' | 'reports';
 
 export default function App() {
-  const [servers, setServers] = useState<VPNServer[]>([]);
+  const [servers, setServers] = useState<ServerType[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingServer, setEditingServer] = useState<VPNServer | undefined>();
+  const [editingServer, setEditingServer] = useState<ServerType | undefined>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<VPNServer['status'] | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<ServerType['status'] | 'all'>('all');
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   // Проверка авторизации при загрузке
   useEffect(() => {
@@ -84,10 +88,21 @@ export default function App() {
     setServers([]);
   };
 
-  const handleSaveServer = async (serverData: Omit<VPNServer, 'id' | 'createdAt'>) => {
+  const handleConfirmPayment = async (serverId: string, paidAt: string, amount?: number) => {
+    try {
+      await apiConfirmPayment(serverId, paidAt, amount);
+      const list = await apiGetServers();
+      setServers(list);
+    } catch (e) {
+      console.error(e);
+      alert('Не удалось подтвердить оплату.');
+    }
+  };
+
+  const handleSaveServer = async (serverData: Omit<ServerType, 'id' | 'createdAt'>) => {
     try {
       if (editingServer) {
-        const updated: VPNServer = {
+        const updated: ServerType = {
           ...editingServer,
           ...serverData,
         };
@@ -96,7 +111,7 @@ export default function App() {
       } else {
         const created = await apiCreateServer({
           ...serverData,
-        } as Omit<VPNServer, 'id' | 'createdAt'>);
+        } as Omit<ServerType, 'id' | 'createdAt'>);
         setServers(prev => [...prev, created]);
       }
       setIsFormOpen(false);
@@ -107,7 +122,7 @@ export default function App() {
     }
   };
 
-  const handleEditServer = (server: VPNServer) => {
+  const handleEditServer = (server: ServerType) => {
     setEditingServer(server);
     setIsFormOpen(true);
   };
@@ -219,8 +234,8 @@ export default function App() {
               <Server className="w-8 h-8" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Управление VPN-серверами</h1>
-              <p className="text-gray-600">Контроль серверов и расходов в одном месте</p>
+            <h1 className="text-3xl font-bold text-gray-900">Биллинг серверов</h1>
+            <p className="text-gray-600">Учёт серверов и расходов в одном месте</p>
             </div>
           </div>
         </div>
@@ -263,6 +278,28 @@ export default function App() {
           </div>
         </div>
 
+        {/* Вкладки */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+          >
+            <Server className="w-4 h-4 inline mr-2" />
+            Дашборд
+          </button>
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'reports' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+          >
+            <FileText className="w-4 h-4 inline mr-2" />
+            Отчётность
+          </button>
+        </div>
+
+        {activeTab === 'reports' ? (
+          <ReportsTab servers={servers} />
+        ) : (
+          <>
         {/* Панель управления */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
           <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between mb-6">
@@ -349,7 +386,7 @@ export default function App() {
             <p className="text-gray-500 mb-6">
               {searchQuery || statusFilter !== 'all' 
                 ? 'Попробуйте изменить параметры поиска или фильтры'
-                : 'Добавьте первый VPN-сервер, чтобы начать отслеживать расходы'
+                : 'Добавьте первый сервер для учёта расходов'
               }
             </p>
             {!searchQuery && statusFilter === 'all' && (
@@ -370,6 +407,7 @@ export default function App() {
                 server={server}
                 onEdit={handleEditServer}
                 onDelete={handleDeleteServer}
+                onConfirmPayment={handleConfirmPayment}
               />
             ))}
           </div>
@@ -380,6 +418,8 @@ export default function App() {
           <div className="mt-4 text-center text-sm text-gray-600">
             Показано {filteredAndSortedServers.length} из {servers.length} серверов
           </div>
+        )}
+          </>
         )}
       </div>
 

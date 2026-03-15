@@ -1,64 +1,56 @@
-## Развёртывание Server Management System на сервере с Nginx
+# Развёртывание «Биллинг серверов» на сервере с Nginx
 
-Ниже — краткий сценарий для production‑развёртывания на Linux‑сервере с доменом и Nginx.
+Краткая инструкция по развёртыванию на Linux с доменом и Nginx.
 
-### 1. Подготовка сервера
+## 1. Подготовка
 
-1. Установите Docker и docker compose.
-2. Убедитесь, что Nginx установлен и слушает порт 80/443.
-3. Добавьте DNS‑запись A/AAAA для домена (например, `example.com`) на IP сервера.
+- Установите Docker и docker compose.
+- Nginx слушает 80/443.
+- DNS: A/AAAA‑запись домена на IP сервера.
 
-### 2. Клонирование и конфигурация проекта
+## 2. Конфигурация
 
-```bash
-git clone <ваш-репозиторий> /opt/servers
-cd /opt/servers
-```
-
-Откройте `docker-compose.yml` и при необходимости задайте свои переменные окружения:
+Клонируйте репозиторий и настройте переменные окружения в `docker-compose.yml`:
 
 ```yaml
 services:
-  vpn-app:
+  app:
     build: .
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       - DB_PATH=/data/app.db
-      - ADMIN_USERNAME=мойлогин
-      - ADMIN_PASSWORD=мойпароль
-      - AUTH_TOKEN=очень_секретный_токен
+      - ADMIN_USERNAME=ваш_логин
+      - ADMIN_PASSWORD=ваш_пароль
+      - AUTH_TOKEN=длинный_секретный_токен
     volumes:
       - db-data:/data
+
+volumes:
+  db-data:
 ```
 
-- `ADMIN_USERNAME` и `ADMIN_PASSWORD` — логин/пароль для входа в админку.
-- `AUTH_TOKEN` — токен, которым backend защищает API (фронтенд автоматически подставляет его после успешного логина).
+- **ADMIN_USERNAME** и **ADMIN_PASSWORD** — обязательны, без них вход в систему недоступен (сервис вернёт «auth not configured»).
+- **AUTH_TOKEN** — секрет для заголовка `Authorization: Bearer …`; задайте свой для production.
 
-### 3. Сборка и запуск контейнера
+## 3. Сборка и запуск
 
 ```bash
-cd /opt/server-servers
 docker compose build
 docker compose up -d
-```
-
-Проверка логов:
-
-```bash
 docker compose logs -f
 ```
 
-Приложение будет работать на `http://127.0.0.1:8080` (доступ только с локального хоста, т.к. мы пробросили порт через `127.0.0.1`).
+Приложение доступно на `http://127.0.0.1:8080` (проксируйте через Nginx).
 
-### 4. Настройка Nginx с доменом
+## 4. Nginx с доменом
 
-Создайте конфиг Nginx, например `/etc/nginx/sites-available/server.conf`:
+Пример `/etc/nginx/sites-available/billing`:
 
 ```nginx
 server {
     listen 80;
-    server_name vpn.example.com;
+    server_name billing.example.com;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -71,59 +63,34 @@ server {
 }
 ```
 
-Активируйте сайт и перезагрузите Nginx:
+Включите сайт и перезагрузите Nginx:
 
 ```bash
-ln -s /etc/nginx/sites-available/server.conf /etc/nginx/sites-enabled/server.conf
-nginx -t
-systemctl reload nginx
+ln -s /etc/nginx/sites-available/billing /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
 ```
 
-Теперь приложение доступно по адресу `http://example.com`.
-
-### 5. Включение HTTPS (рекомендуется)
-
-Используйте certbot (пример для Debian/Ubuntu):
+## 5. HTTPS
 
 ```bash
 apt install certbot python3-certbot-nginx
-certbot --nginx -d example.com
+certbot --nginx -d billing.example.com
 ```
 
-Certbot сам обновит конфиг Nginx и добавит блоки для HTTPS.
+## 6. Авторизация
 
-### 6. Как работает авторизация
+- Логин и пароль задаются **только** в переменных окружения (`ADMIN_USERNAME`, `ADMIN_PASSWORD`). В коде приложения дефолтных значений нет.
+- Пользователь вводит учётные данные на форме входа → фронт отправляет `POST /api/login` → бэкенд сравнивает с переменными окружения и при совпадении возвращает токен.
+- Фронт сохраняет токен и подставляет его в заголовок `Authorization: Bearer <токен>` при каждом запросе к API. Без токена или с неверным токеном бэкенд возвращает 401.
 
-1. В форме логина вы вводите логин/пароль.
-2. Фронтенд отправляет запрос `POST /api/login` в контейнер Go.
-3. Backend сравнивает логин/пароль с `ADMIN_USERNAME` / `ADMIN_PASSWORD` (из `docker-compose.yml`).
-4. При успехе backend возвращает токен (`AUTH_TOKEN` или значение по умолчанию).
-5. Фронтенд сохраняет токен в `localStorage` и передаёт его во всех запросах API в заголовке:
+## 7. Напоминания и отчётность
 
-   ```http
-   Authorization: Bearer <AUTH_TOKEN>
-   ```
+- В настройках (иконка «Настройки») задаётся SMTP и **за сколько дней до срока** присылать напоминание (по умолчанию 10). Раз в час бэкенд проверяет сервера с предстоящим платежом и отправляет письмо на указанный адрес.
+- Подтверждение оплаты: на карточке сервера кнопка «Подтвердить оплату» — указываете дату и сумму; дата следующего платежа пересчитывается автоматически.
+- Вкладка «Отчётность»: выбор периода и сервера, таблица расходов, выгрузка в CSV.
 
-6. Backend проверяет этот заголовок для всех защищённых эндпоинтов (`/api/servers`, `/api/smtp-settings`). Без токена или с неверным токеном будет `401 Unauthorized`.
+## 8. Типичные проблемы
 
-Важно:
-- На фронте **нет** захардкоженных логина/пароля — всё задаётся в Docker‑окружении.
-- Если вы поменяли `ADMIN_USERNAME`, `ADMIN_PASSWORD` или `AUTH_TOKEN`, перезапустите контейнер:
-
-```bash
-docker compose up -d
-```
-
-### 7. Типичные проблемы и их решение
-
-- **Ошибка авторизации / не пускает в систему**
-  - Проверьте, что в `docker-compose.yml` заданы корректные `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
-  - После изменения значений перезапустите контейнер.
-
-- **Ошибка `Error loading servers from API` в браузере**
-  - Убедитесь, что вы вошли в систему (без токена backend вернёт `401`).
-  - Проверьте логи контейнера: `docker compose logs -f`.
-
-- **Ошибка при удалении сервера (`Unexpected end of JSON input`)**
-  - В текущей версии клиент корректно обрабатывает ответы `204 No Content` от backend; если видите эту ошибку, убедитесь, что контейнер пересобран из актуального кода.
-
+- **«auth not configured»** — не заданы `ADMIN_USERNAME` или `ADMIN_PASSWORD`. Задайте их в `docker-compose.yml` и перезапустите контейнер.
+- **401 при запросах** — выйдите и войдите снова (токен мог измениться или истёк).
+- **Письма не приходят** — проверьте SMTP в настройках, кнопка «Отправить тестовое письмо»; убедитесь, что уведомления включены и указано «Кому (To)».

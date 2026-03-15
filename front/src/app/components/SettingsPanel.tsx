@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { SMTPSettings } from '../types/server';
 import { Mail, Save, X, CheckCircle, AlertCircle } from 'lucide-react';
-import { apiGetSMTPSettings, apiUpdateSMTPSettings } from '../utils/api';
+import { apiGetSMTPSettings, apiUpdateSMTPSettings, apiSendTestEmail } from '../utils/api';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -15,7 +15,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     password: '',
     from: '',
     to: '',
-    enabled: false
+    enabled: false,
+    reminderDaysBefore: 10
   });
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -48,21 +49,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   };
 
-  const handleTestEmail = () => {
+  const handleTestEmail = async () => {
     if (!settings.enabled) {
       setSaveMessage({ type: 'error', text: 'Включите уведомления для отправки тестового письма' });
       return;
     }
-
-    // Имитация отправки email (в реальности требуется backend)
-    setSaveMessage({ 
-      type: 'success', 
-      text: 'Тестовое письмо отправлено! (В production версии требуется backend для реальной отправки)' 
-    });
-    
-    setTimeout(() => {
-      setSaveMessage(null);
-    }, 5000);
+    try {
+      await apiSendTestEmail();
+      setSaveMessage({ type: 'success', text: 'Тестовое письмо отправлено на указанный адрес.' });
+    } catch (e) {
+      setSaveMessage({ type: 'error', text: 'Не удалось отправить письмо. Проверьте настройки SMTP.' });
+    }
+    setTimeout(() => setSaveMessage(null), 5000);
   };
 
   return (
@@ -201,21 +199,23 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   value={settings.to}
                   onChange={(e) => setSettings({ ...settings, to: e.target.value })}
                   className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
-                  placeholder="admin@example.com"
+                  placeholder="email@example.com"
                 />
               </div>
-            </div>
-          </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex gap-3">
-              <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-yellow-800">
-                <p className="font-medium mb-1">Важная информация</p>
-                <p>
-                  Для реальной отправки email-уведомлений требуется backend-сервер с поддержкой SMTP. 
-                  В текущей версии настройки сохраняются локально для демонстрации интерфейса.
-                </p>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Напоминание за N дней до срока оплаты
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={settings.reminderDaysBefore || 10}
+                  onChange={(e) => setSettings({ ...settings, reminderDaysBefore: parseInt(e.target.value, 10) || 10 })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
+                />
+                <p className="text-xs text-gray-500 mt-1">По умолчанию письмо приходит за 10 дней до даты платежа.</p>
               </div>
             </div>
           </div>

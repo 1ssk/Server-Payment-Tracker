@@ -39,9 +39,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Lock className="w-12 h-12" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              Управление VPN-серверами
+              Биллинг серверов
             </h1>
-            <p className="text-gray-600">Войдите в систему для продолжения</p>
+            <p className="text-gray-600">Войдите в систему</p>
           </div>
 
           {error && (
@@ -63,7 +63,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
-                  placeholder="admin"
+                  placeholder="Имя пользователя"
                   required
                 />
               </div>
@@ -102,12 +102,6 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               {loading ? 'Входим…' : 'Войти'}
             </button>
           </form>
-
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500 text-center">
-              Доступ задаётся на сервере через переменные окружения <code>ADMIN_USERNAME</code> и <code>ADMIN_PASSWORD</code>.
-            </p>
-          </div>
         </div>
       </div>
     </div>
